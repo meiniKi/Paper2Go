@@ -19,8 +19,8 @@ def make_listenable(self, markdown, ofile=None):
     return do_make_listenable(markdown, ofile)
 
 @app.task(bind=True)
-def make_tts(self, titles, script, odir, method, bar):
-    return do_make_tts(titles, script, odir, method, bar)
+def make_tts(self, titles, script, odir, config_dict):
+    return do_make_tts(titles, script, odir, config_dict)
 
 @app.task(bind=True)
 def archive(self, idir, ofile):

@@ -4,63 +4,66 @@
 import os
 import streamlit as st
 from datetime import datetime
-from tasks import *
 from pathlib import Path
 from celery import Celery
+import pandas as pd
+import numpy as np
+from config import load_config, store_config, config_ui
+from pipelines import pipeline_from_pdf, pipeline_from_text
 
+config_dict = None
 
 def unique_dir():
     return datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")[:-3]
 
+def text_tts_start_pipeline():
+    working_dir = Path("data").absolute() / unique_dir()
+    pipeline_from_text(st.session_state.tts_source_text, working_dir, config_dict)
+
 def main():
+    global config_dict
+
     st.set_page_config(page_title="Paper2Go")
     st.title("Paper2Go")
-    app = Celery('tasks', broker='redis://localhost:6379/0')
+    app = Celery("tasks", broker="redis://localhost:6379/0")
 
-    uploaded_file = st.file_uploader("Select a pdf to convert.", type=['pdf'])
+    config_dict = load_config('paper2go.ini')
 
-    tts_method = st.radio("Select method for TTS 👇", ["Fish-Speech", "XTTSv2"], index=0)
+    tab_pdf, tab_text, tab_settings = st.tabs(["From PDF", "From Text", "Settings"])
 
-    if uploaded_file is not None:
-        working_dir = Path("data").absolute() / unique_dir()
-        os.makedirs(working_dir, exist_ok=True)
-        filepath = working_dir / uploaded_file.name
+    with tab_pdf:
+        source_files = st.file_uploader("Select a pdf to convert.", accept_multiple_files=True, type=["pdf"])
+        if st.button("Convert PDFs" if len(source_files) > 1 else "Convert PDF"):
+            working_dir = Path("data").absolute() / unique_dir()
+            pipeline_from_pdf(source_files, working_dir, config_dict)
 
-        with open(filepath, "wb") as f:
-            f.write(uploaded_file.getbuffer())
+    with tab_text:
+        source_text = st.text_area("Type your script here", key="tts_source_text", on_change=text_tts_start_pipeline)
 
-        st.success(f"File {uploaded_file.name} uploaded successfully!")
+    with tab_settings:
+        col_down, col_restore, col_up = st.columns([2,2,8])
+        with col_down:
+            st.download_button(
+                label="Download",
+                data=store_config(config_dict, stream=True),
+                file_name='config.ini',
+                mime='text/plain'
+            )
+        with col_up:
+            with st.expander("Upload"):
+                uploaded_ini = st.file_uploader(
+                    label="Upload Config INI",
+                    type=["ini"],
+                    label_visibility="hidden")
+                if uploaded_ini is not None:
+                    with open('paper2go.ini', "wb") as f:
+                        f.write(uploaded_ini.getbuffer())
+        with col_restore:
+            if st.button("Restore"):
+                config_dict = load_config('paper2go_defaults.ini')
 
-        if st.button("Convert PDF"):
-            steps = ["PDF to Text Conversion", "Reformulation", "Text-to-Speech", "ZIP"]
-            # Step 1: PDF to text
-            with st.spinner(f"Converting {steps[0]}..."):
-                r = convert_to_markdown(filepath, working_dir / "01_extracted.md")
-            st.write(f"Step 1 complete: {steps[0]}")
-            # Step 2: Script
-            with st.spinner(f"Scripting {steps[0]}..."):
-                r = make_listenable(r["markdown"], working_dir / "02_script.md")
-            st.write(f"Step 2 complete: {steps[1]}")
-            # Step 3: TTS
-            os.makedirs(working_dir / "audio")
-            progress_bar = st.progress(0)
-            with st.spinner(f"TTS {steps[0]}..."):
-                r = make_tts(r['titles'], r['script'], working_dir / "audio", tts_method, progress_bar)
-            st.write(f"Step 3 complete: {steps[2]}")
-            progress_bar.progress(1)
-            # Step 4: zip
-            with st.spinner(f"TTS {steps[0]}..."):
-                r = archive(working_dir / "audio", working_dir / "audio.zip")
-            st.write(f"Step 4 complete: {steps[3]}")
-
-            with open(working_dir / "audio.zip", "rb") as file:
-                st.download_button(
-                    label="Download Files",
-                    data=file,
-                    file_name=str(working_dir / "audio.zip"),
-                    mime="application/zip"
-                )
-
+        config_ui(config_dict)
+       
     st.sidebar.title("About")
     st.sidebar.write("Paper2Go converts a PDF to Markdown, re-formulates it, synthesizes it into speech, and converts it to MP3 audio.")        
     footer()

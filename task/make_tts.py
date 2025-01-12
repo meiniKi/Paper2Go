@@ -12,48 +12,49 @@ from TTS.api import TTS
 import torch
 from pathlib import Path
 
-def worker(method, config, working_dir, nr, title, text):
+def worker(working_dir, nr, title, text, config_dict):
     os.makedirs(working_dir)
 
-    if method == 'Fish-Speech':
-        GENERATE_PY = str(Path(config.get('TTS_FISH','GENERATE_PY')).absolute())
-        INFERENCE_PY = str(Path(config.get('TTS_FISH','INFERENCE_PY')).absolute())
-        CHKP = str(Path(config.get('TTS_FISH','FISHSPEECH_CHKP_PATH')).absolute())
-        GENERATOR_PTH = str(Path(config.get('TTS_FISH','GENERATOR_PTH')).absolute())
+    print(config_dict)
 
+    if config_dict["TTS"]["tts_method"] == 'TTS_FISH':
         import locale
         locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
 
-        cmd = ['python', GENERATE_PY]
+        cmd = ['python', str(Path(config_dict["TTS_FISH"]["generate_py"]).absolute())]
         cmd += ['--text', text]
-        cmd += ['--checkpoint-path', CHKP]
-        cmd += ['--num-samples' , '2']
+        cmd += ['--checkpoint-path', str(Path(config_dict["TTS_FISH"]["fishspeech_chkp_path"]).absolute())]
+        cmd += ['--num-samples' , config_dict["TTS_FISH"]["num_samples"]]
+        cmd += ['--top-p' , config_dict["TTS_FISH"]["top_p"]]
+        cmd += ['--repetition-penalty' , config_dict["TTS_FISH"]["repetition_penalty"]]
+        cmd += ['--temperature' , config_dict["TTS_FISH"]["temperature"]]
+        cmd += ['--seed' , config_dict["TTS_FISH"]["seed"]]
+        cmd += ['--chunk-length', config_dict["TTS_FISH"]["chunk_length"]]
         cmd += ['--compile']
         subprocess.run(cmd, cwd=working_dir)
 
-        cmd = ['python', INFERENCE_PY]
+        #TODO: voices
+
+        cmd = ['python', str(Path(config_dict["TTS_FISH"]["inference_py"]).absolute())]
         cmd += ['-i' , working_dir/'codes_0.npy']
-        cmd += ['--checkpoint-path', GENERATOR_PTH]
+        cmd += ['--checkpoint-path', str(Path(config_dict["TTS_FISH"]["generator_pth"]).absolute())]
         subprocess.run(cmd, cwd=working_dir)
     else:
-        MODEL_XTTS = config.get('TTS_XTTSv2','MODEL')
-        SPEAKER_WAV = config.get('TTS_XTTSv2','SPEAKER_WAV')
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        tts = TTS(MODEL_XTTS).to(device)
+
+        speaker_wav = str(Path(config_dict["TTS"]["voice"]).absolute()) if config_dict["TTS"]["voice"] is not "Default" \
+                        else str(Path(config_dict["TTS_XTTSv2"]["default_voice"]).absolute())
+        tts = TTS(config_dict["TTS_XTTSv2"]["MODEL"]).to(device)
         tts.tts_to_file(text=text,
                         file_path=working_dir/"fake.wav",
-                        speaker_wav=SPEAKER_WAV,
+                        speaker_wav=speaker_wav,
                         language="en")
 
     AudioSegment.from_wav(working_dir/"fake.wav").export(working_dir/'..'/f'{nr}-{title}.mp3', format="mp3")
     shutil.rmtree(working_dir)
 
 
-def do_make_tts(titles, script, odir, method, bar):
-    config = configparser.ConfigParser()
-    config.read('paper2go.ini')
-    length = len(script)
-    
+def do_make_tts(titles, script, odir, config_dict):
     if False:
         with Manager() as manager:
             with Pool(NR_WORKER) as pool:
@@ -66,6 +67,7 @@ def do_make_tts(titles, script, odir, method, bar):
     else:
         for i, (title, text) in enumerate(zip(titles, script)):
             working_dir = odir / ("%x" % random.randrange(2 ** 32))
-            worker(method, config, working_dir, i, title, text)
-            bar.progress(i/length)
+            worker(working_dir, i, title, text, config_dict)
+
+
 
