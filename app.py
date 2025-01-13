@@ -4,90 +4,133 @@
 import os
 import streamlit as st
 from datetime import datetime
-from tasks import *
 from pathlib import Path
 from celery import Celery
+from celery.result import AsyncResult
+import pandas as pd
+import numpy as np
+from config import Config
+from tasks import convert_to_markdown, make_listenable, make_tts, archive
+import time
 
+class App():
+    def __init__(self):
+        self.config = Config(voices_dir=Path("voices").absolute())
+        self.celery_app = Celery('tasks', broker='redis://localhost:6379/0', backend='redis://localhost:6379/0')
 
-def unique_dir():
-    return datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")[:-3]
+    def __wait_with_spinner(self, task, file:int, of_files:int, step_name:str, step:int, of_steps:int):
+        with st.spinner(f"Processing File ({file}/{of_files}) Step {step_name} ({step}/{of_steps})"):
+            while True:
+                task_result = AsyncResult(task.id, app=self.celery_app)
+                if task_result.state == "SUCCESS":
+                    return task_result.result
+                elif task_result.state in ["FAILURE", "REVOKED"]:
+                    st.error(f"Task failed with status: {task_result.state}")
+                    return None
+                time.sleep(1)
 
-def main():
-    st.set_page_config(page_title="Paper2Go")
-    st.title("Paper2Go")
-    app = Celery('tasks', broker='redis://localhost:6379/0')
+    def run(self):
+        st.set_page_config(page_title="Paper2Go")
+        st.title("Paper2Go")
 
-    uploaded_file = st.file_uploader("Select a pdf to convert.", type=['pdf'])
+        tab_pdf, tab_text = st.tabs(["From PDF", "From Text"])
 
-    tts_method = st.radio("Select method for TTS 👇", ["Fish-Speech", "XTTSv2"], index=0)
+        with tab_pdf:
+            source_files = st.file_uploader("Select a pdf to convert.", accept_multiple_files=True, type=["pdf"])
+            if st.button("Convert PDFs" if len(source_files) > 1 else "Convert PDF"):
+                working_dir = Path("data").absolute() / self.unique_dir()
+                st.write("This may take a few minutes, please be patient...")
+                os.makedirs(working_dir, exist_ok=True)
+                for i, file in enumerate(source_files):
+                    file_bytes = bytes(file.getbuffer())
+                    task_step_1 = self.__from_pdf_step_1(file_bytes, str(working_dir / "01_extracted.md"), self.config.as_dict())
+                    if (result := self.__wait_with_spinner(task_step_1, i, len(source_files), "PDF to Text Conversion", 1, 3)) is None:
+                        break
 
-    if uploaded_file is not None:
-        working_dir = Path("data").absolute() / unique_dir()
-        os.makedirs(working_dir, exist_ok=True)
-        filepath = working_dir / uploaded_file.name
+                    task_step_2 = self.__from_pdf_step_2(result["markdown"], self.config.as_dict(), str(working_dir / "02_script.md"), self.config.as_dict())
+                    if (result := self.__wait_with_spinner(task_step_2, i, len(source_files), "Reformulation", 2, 3)) is None:
+                        break
 
-        with open(filepath, "wb") as f:
-            f.write(uploaded_file.getbuffer())
+                    os.makedirs(working_dir / "audio" / f"{i}")
+                    task_step_3 = self.__from_text_pipeline(result["titles"], result["script"], str(working_dir / "audio" / f"{i}"), self.config.as_dict())
+                    if (result := self.__wait_with_spinner(task_step_3, i, len(source_files), "Text-to-Speech", 3, 3)) is None:
+                        break
 
-        st.success(f"File {uploaded_file.name} uploaded successfully!")
+                st.spinner("Preparing Download...")
+                r = archive(str(working_dir / "audio"), str(working_dir / "audio.zip"))
+                with open(working_dir / "audio.zip", "rb") as file:
+                    st.download_button(
+                        label="Download Files",
+                        data=file,
+                        file_name=str(working_dir / "audio.zip"),
+                        mime="application/zip"
+                    )
 
-        if st.button("Convert PDF"):
-            steps = ["PDF to Text Conversion", "Reformulation", "Text-to-Speech", "ZIP"]
-            # Step 1: PDF to text
-            with st.spinner(f"Converting {steps[0]}..."):
-                r = convert_to_markdown(filepath, working_dir / "01_extracted.md")
-            st.write(f"Step 1 complete: {steps[0]}")
-            # Step 2: Script
-            with st.spinner(f"Scripting {steps[0]}..."):
-                r = make_listenable(r["markdown"], working_dir / "02_script.md")
-            st.write(f"Step 2 complete: {steps[1]}")
-            # Step 3: TTS
-            os.makedirs(working_dir / "audio")
-            progress_bar = st.progress(0)
-            with st.spinner(f"TTS {steps[0]}..."):
-                r = make_tts(r['titles'], r['script'], working_dir / "audio", tts_method, progress_bar)
-            st.write(f"Step 3 complete: {steps[2]}")
-            progress_bar.progress(1)
-            # Step 4: zip
-            with st.spinner(f"TTS {steps[0]}..."):
-                r = archive(working_dir / "audio", working_dir / "audio.zip")
-            st.write(f"Step 4 complete: {steps[3]}")
+        with tab_text:
+            source_text = st.chat_input("Type your script here")
+            if source_text:
+                working_dir = Path("data").absolute() / self.unique_dir()
+                os.makedirs(working_dir, exist_ok=True)
+                task = self.__from_text_pipeline(["tts"], [source_text], str(working_dir), self.config.as_dict())
+                with st.spinner(f"Processing..."):
+                    while True:
+                        task_result = AsyncResult(task.id, app=self.celery_app)
+                        if task_result.state == "SUCCESS":
+                            result = task_result.result
+                            st.success(f"Done 💬✅")
+                            break
+                        elif task_result.state in ["FAILURE", "REVOKED"]:
+                            st.error(f"Task failed with status: {task_result.state}")
+                            break
+                        time.sleep(1)
 
-            with open(working_dir / "audio.zip", "rb") as file:
-                st.download_button(
-                    label="Download Files",
-                    data=file,
-                    file_name=str(working_dir / "audio.zip"),
-                    mime="application/zip"
-                )
+                st.audio(working_dir/"0-tts.mp3", format="audio/mpeg", loop=False)
 
-    st.sidebar.title("About")
-    st.sidebar.write("Paper2Go converts a PDF to Markdown, re-formulates it, synthesizes it into speech, and converts it to MP3 audio.")        
-    footer()
-
-def footer():
-    st.markdown(
-        f"""
-        <style>
-        .footer {{
-            position: fixed;
-            left: 0;
-            bottom: 0;
-            width: 100%;
-            background-color: #0e1117;
-            color: gray;
-            text-align: center;
-            padding: 10px 0;
-        }}
-        </style>
+        self.config.config_ui()
         
-        <div class="footer">
-            Developed with 🩶 by Meinhard Kissich
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        st.sidebar.title("About")
+        st.sidebar.write("Paper2Go converts a PDF to Markdown, re-formulates it, synthesizes it into speech, and converts it to MP3 audio.")        
+        self.footer()
+
+    def __from_text_pipeline(self, titles, texts, working_dir, config):
+        return self.celery_app.send_task('tasks.make_tts', args=[titles, texts, working_dir, config])
+
+    def __from_pdf_step_1(self, file_bytes, working_dir, config):
+        return self.celery_app.send_task('tasks.convert_to_markdown', args=[file_bytes, working_dir])
+
+    def __from_pdf_step_2(self, script, condfig, working_dir, config):
+        return self.celery_app.send_task('tasks.make_listenable', args=[script, config, working_dir])
+
+    def unique_dir(self):
+        return datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")[:-3]
+
+
+    def footer(self):
+        st.markdown(
+            f"""
+            <style>
+            .footer {{
+                position: fixed;
+                left: 0;
+                bottom: 0;
+                width: 100%;
+                background-color: #0e1117;
+                color: gray;
+                text-align: center;
+                padding: 10px 0;
+            }}
+            </style>
+            
+            <div class="footer">
+                Developed with 🩶 by Meinhard Kissich
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
 
 
 if __name__ == "__main__":
-    main()
+    app = App()
+    app.run()
+
