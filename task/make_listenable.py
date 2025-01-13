@@ -8,13 +8,7 @@ import torch
 from ollama import chat, Client
 from ollama import ChatResponse
 
-def do_make_listenable(markdown, ofile=None):
-    config = configparser.ConfigParser()
-    config.read('paper2go.ini')
-    MODEL = config.get('LISTENABLE','MODEL')
-    HOST = config.get('LISTENABLE','HOST')
-    FILTERS = config.get('LISTENABLE','FILTERS').split(",")
-    SYSTEM_PROMPT = config.get('LISTENABLE','SYSTEM_PROMPT')
+def do_make_listenable(markdown, config_dict, ofile=None):
 
     prompt_template = """
         Take into account the context delimited by triple backquotes.
@@ -41,7 +35,7 @@ def do_make_listenable(markdown, ofile=None):
             to_skip -= 1
             continue
         s = s.strip()
-        if any(word in s.lower() for word in FILTERS):
+        if any(word in s.lower() for word in config_dict["LISTENABLE"]["filters"].split(",")):
             to_skip += 1
             continue
         if not s.startswith("#"):
@@ -54,7 +48,7 @@ def do_make_listenable(markdown, ofile=None):
 
     processed_texts = []
 
-    client = Client(host=HOST)
+    client = Client(host=config_dict["LISTENABLE"]["host"])
 
     for i in tqdm(range(len(texts))):
         if len(processed_texts) == 0:
@@ -65,8 +59,8 @@ def do_make_listenable(markdown, ofile=None):
             context = processed_texts[0] + processed_texts[-1]
 
         response = client.generate(
-            model=MODEL,
-            system=SYSTEM_PROMPT,
+            model=config_dict["LISTENABLE"]["model"],
+            system=config_dict["LISTENABLE"]["system_prompt"],
             prompt=prompt_template.format(text=texts[i], context=context)
         )
         processed_texts.append(response.response.strip().strip("```").strip().strip('"'))

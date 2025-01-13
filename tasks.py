@@ -8,20 +8,24 @@ from task.archive import do_archive
 
 from celery import Celery
 
-app = Celery('tasks', broker='redis://localhost:6379/0')
+app = Celery(
+    'tasks', 
+    broker='redis://localhost:6379/0', 
+    backend='redis://localhost:6379/0'
+)
 
-@app.task(bind=True)
-def convert_to_markdown(self, ifile, ofile=None):
-    return do_convert_to_markdown(ifile, ofile=None)
+@app.task
+def convert_to_markdown(file_bytes, ofile=None):
+    return do_convert_to_markdown(file_bytes, ofile=None)
 
-@app.task(bind=True)
-def make_listenable(self, markdown, ofile=None):
-    return do_make_listenable(markdown, ofile)
+@app.task
+def make_listenable(markdown, config_dict, ofile=None):
+    return do_make_listenable(markdown, config_dict, ofile)
 
-@app.task(bind=True)
-def make_tts(self, titles, script, odir, config_dict):
+@app.task
+def make_tts(titles, script, odir, config_dict):
     return do_make_tts(titles, script, odir, config_dict)
 
-@app.task(bind=True)
-def archive(self, idir, ofile):
+@app.task
+def archive(idir, ofile):
     return do_archive(idir, ofile)

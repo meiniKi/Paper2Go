@@ -66,7 +66,7 @@ def do_make_tts(titles, script, odir, config_dict):
                 pool.join()
     else:
         for i, (title, text) in enumerate(zip(titles, script)):
-            working_dir = odir / ("%x" % random.randrange(2 ** 32))
+            working_dir = Path(odir) / ("%x" % random.randrange(2 ** 32))
             worker(working_dir, i, title, text, config_dict)
 
 

@@ -27,7 +27,7 @@ class Config:
                             "XTTSv2" : [checkbox_config_setup("TTS_XTTSv2", "split_sentences", "Split Sentence")]}
 
 
-    def __init__(self, voices_dir:Path, config_path="paper2go.ini", config_defaults_path="paper2go_defaults.ini"):
+    def __init__(self, voices_dir:Path, config_path="paper2go.ini", config_defaults_path="paper2go_default.ini"):
         self.config_path = config_path
         self.config_defaults_path = config_defaults_path
         self.voices_dir = voices_dir
@@ -36,12 +36,13 @@ class Config:
     def as_dict(self):
         return st.session_state["config"]
         
-    def load_config(self):
+    def load_config(self, defaults=False):
         parser = configparser.ConfigParser()
-        parser.read(self.config_path)
+        parser.read(self.config_path if not defaults else self.config_defaults_path)
         st.session_state["config"] = {section: dict(parser.items(section)) for section in parser.sections()}
 
-    def store_config(self, stream=False):
+    def store_config(self):
+        self.__update_to_config_dict()
         parser = configparser.ConfigParser()
         for section in st.session_state["config"].keys():
             parser.add_section(section)
@@ -57,24 +58,19 @@ class Config:
             with open(self.config_path, 'w') as f:
                 parser.write(f)
 
-        if stream:
-            output = StringIO()
-            parser.write(output)
-            return output.getvalue()
-
-    def update_config(self, key, value):
-        if self.config and (key in self.config):
-            self.config[key] = value
-
     @st.dialog("Upload your INI File")
     def config_upload_ini_dialog(self):
         uploaded_ini = st.file_uploader(
             label="Upload INI",
             type=["ini"],
             label_visibility="hidden")
+        st.session_state.uploaded_ini = uploaded_ini
         if uploaded_ini is not None:
             with open('paper2go.ini', "wb") as f:
                 f.write(uploaded_ini.getbuffer())
+            del st.session_state.uploaded_ini
+            self.load_config()
+            st.rerun()
 
 
     def __tts_translate(self, label_txt):
@@ -87,28 +83,33 @@ class Config:
             if os.path.isfile(file_path) or os.path.islink(file_path):
                 os.remove(file_path)
 
+    def __update_to_config_dict(self):
+        for s in sum(Config.config_sliders.values(), []):
+            st.session_state["config"][s.section][s.key] = str(st.session_state.get(f"{s.section}_{s.key}"))
+            print("{}: {}".format(f"{s.section}_{s.key}", str(st.session_state.get(f"{s.section}_{s.key}"))))
+        for c in sum(Config.config_checkboxes.values(), []):
+            st.session_state["config"][c.section][c.key] = str(st.session_state.get(f"{c.section}_{c.key}"))
+
     def config_ui(self):
         with st.sidebar:
             st.title("Settings")
 
             if st.button("✅ Save", use_container_width=True):
-                for s in sum(Config.config_sliders.values(), []):
-                    st.session_state["config"][s.section][s.key] = str(st.session_state.get(f"{s.section}_{s.key}"))
-                for c in sum(Config.config_checkboxes.values(), []):
-                    st.session_state["config"][c.section][c.key] = str(st.session_state.get(f"{c.section}_{c.key}"))
-                print(st.session_state["config"])
                 self.store_config()
 
             with st.expander("Store / Restore"):
                 if st.button("⚙️ Restore Defaults"):
-                    st.session_state["config"] = self.load_config(self.config_defaults_path)
+                    self.load_config(defaults=True)
+                    print(st.session_state["config"])
 
-                st.download_button(
-                    label="💾 Download Config",
-                    data=self.store_config(stream=True),
-                    file_name='config.ini',
-                    mime='text/plain'
-                )
+                with open(self.config_path, "rb") as file:
+                    st.download_button(
+                        label="💾 Download Config",
+                        data=file,
+                        #on_click=self.store_config(), TODO: check why this is initially executed
+                        file_name='config.ini',
+                        mime='text/plain'
+                    )
 
                 if "config_upload_ini_dialog" not in st.session_state:
                     if st.button("📁 Upload Config INI"):
