@@ -12,11 +12,11 @@ Through the Web App, the document can be uploaded. Paper2Go uses [Docling](https
 ## 🎨 Key Features
 
 <ul>
-<li style="list-style-type: '🔊 '"> Convert PDF documents to an AI-summarized audiobook
-<li style="list-style-type: '💿 '"> Download the audio files separated by section names as ZIP archive
-<li style="list-style-type: '⚙️ '"> Adjust model parameters directly in the Web app
-<li style="list-style-type: '🎤 '"> Upload voices or record your own voice directly in Web app
-<li style="list-style-type: '💾 '"> Download & restore configurations
+<li style="list-style-type: ':sound: '"> Convert PDF documents to an AI-summarized audiobook
+<li style="list-style-type: ':cd: '"> Download the audio files separated by section names as ZIP archive
+<li style="list-style-type: ':wrench: '"> Adjust model parameters directly in the Web app
+<li style="list-style-type: ':microphone: '"> Upload voices or record your own voice directly in Web app
+<li style="list-style-type: ':floppy_disk: '"> Download & restore configurations
 </ul>
 
 ## 🚀 Quickstart
