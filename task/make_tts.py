@@ -15,14 +15,18 @@ from pathlib import Path
 def worker(working_dir, nr, title, text, config_dict):
     os.makedirs(working_dir)
 
-    print(config_dict)
-
     if config_dict["TTS"]["tts_method"] == 'TTS_FISH':
         import locale
         locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
 
         cmd = ['python', str(Path(config_dict["TTS_FISH"]["generate_py"]).absolute())]
         cmd += ['--text', text]
+
+        if os.path.isfile(config_dict["TTS"]["voice"] + ".txt") and os.path.isfile(config_dict["TTS"]["voice"] + ".wav"):
+            with open(config_dict["TTS"]["voice"] + ".txt", "r") as f:
+                cmd += ['--prompt-text', ' '.join(f.readlines())]
+            cmd += ['--prompt-tokens', config_dict["TTS"]["voice"] + ".npy"]
+
         cmd += ['--checkpoint-path', str(Path(config_dict["TTS_FISH"]["fishspeech_chkp_path"]).absolute())]
         cmd += ['--num-samples' , config_dict["TTS_FISH"]["num_samples"]]
         cmd += ['--top-p' , config_dict["TTS_FISH"]["top_p"]]
@@ -30,7 +34,10 @@ def worker(working_dir, nr, title, text, config_dict):
         cmd += ['--temperature' , config_dict["TTS_FISH"]["temperature"]]
         cmd += ['--seed' , config_dict["TTS_FISH"]["seed"]]
         cmd += ['--chunk-length', config_dict["TTS_FISH"]["chunk_length"]]
-        cmd += ['--compile']
+    
+        if config_dict["TTS_FISH"]["compile"]:
+            cmd += ['--compile']
+
         subprocess.run(cmd, cwd=working_dir)
 
         #TODO: voices
@@ -42,9 +49,9 @@ def worker(working_dir, nr, title, text, config_dict):
     else:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        speaker_wav = str(Path(config_dict["TTS"]["voice"]).absolute()) if config_dict["TTS"]["voice"] is not "Default" \
+        speaker_wav = str(Path(config_dict["TTS"]["voice"]).absolute()) if config_dict["TTS"]["voice"] != "Default" \
                         else str(Path(config_dict["TTS_XTTSv2"]["default_voice"]).absolute())
-        tts = TTS(config_dict["TTS_XTTSv2"]["MODEL"]).to(device)
+        tts = TTS(config_dict["TTS_XTTSv2"]["model"]).to(device)
         tts.tts_to_file(text=text,
                         file_path=working_dir/"fake.wav",
                         speaker_wav=speaker_wav,

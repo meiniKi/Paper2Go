@@ -7,10 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from celery import Celery
 from celery.result import AsyncResult
-import pandas as pd
-import numpy as np
 from config import Config
-from tasks import convert_to_markdown, make_listenable, make_tts, archive
+from tasks import archive
 import time
 
 class App():

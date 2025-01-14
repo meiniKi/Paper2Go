@@ -7,3 +7,7 @@ pip install .[de,en,es,fr]
 cd ..
 rm -rf gruut
 pip install -r requirements.txt
+
+cd models/fish-speech
+pip install -e .
+cd ../..
