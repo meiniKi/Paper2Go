@@ -9,6 +9,9 @@ from pathlib import Path
 from pydub import AudioSegment
 import streamlit_nested_layout
 from collections import namedtuple
+from datetime import datetime
+import time
+from celery import Celery
 
 class Config:
 
@@ -31,6 +34,7 @@ class Config:
         self.config_path = config_path
         self.config_defaults_path = config_defaults_path
         self.voices_dir = voices_dir
+        self.celery_app = Celery('tasks', broker='redis://localhost:6379/0', backend='redis://localhost:6379/0')
         self.load_config()
 
     def as_dict(self):
@@ -72,6 +76,26 @@ class Config:
             self.load_config()
             st.rerun()
 
+    @st.dialog("Record your voice")
+    def voice_record(self):
+        transcript = st.text_input("⚠️ First, write what you are going to say", placeholder="Type here and press Enter...")
+        tts_voice_record = st.audio_input("Record a voice", label_visibility="hidden")
+        if tts_voice_record:
+            os.makedirs(self.voices_dir, exist_ok=True)
+            filename = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            with open(self.voices_dir / (filename + ".wav"), 'wb') as f:
+                f.write(tts_voice_record.getbuffer())
+            with open(self.voices_dir / (filename + ".txt"), 'w') as f:
+                f.write(transcript)
+            
+            task_convert = self.__encode_reference(
+                str(self.voices_dir / (filename + ".wav")),
+                str(self.voices_dir / (filename + ".npy")),
+                self.as_dict())
+            if task_convert is None:
+                st.error("Cannot convert.")
+            st.success(f"Voice successfully saved as {filename}")
+            st.rerun()
 
     def __tts_translate(self, label_txt):
         lut = {"Fish-Speech": "TTS_FISH", "XTTSv2": "TTS_XTTSv2"}
@@ -82,20 +106,28 @@ class Config:
             file_path = self.voices_dir / filename
             if os.path.isfile(file_path) or os.path.islink(file_path):
                 os.remove(file_path)
+        st.rerun()
 
     def __update_to_config_dict(self):
+        st.session_state["config"]["TTS"]["tts_method"] = str(st.session_state.get(f"tts_method"))
+        st.session_state["config"]["TTS"]["voice"] = str(self.voices_dir / st.session_state.get(f"voice_selection"))
         for s in sum(Config.config_sliders.values(), []):
             st.session_state["config"][s.section][s.key] = str(st.session_state.get(f"{s.section}_{s.key}"))
-            print("{}: {}".format(f"{s.section}_{s.key}", str(st.session_state.get(f"{s.section}_{s.key}"))))
         for c in sum(Config.config_checkboxes.values(), []):
             st.session_state["config"][c.section][c.key] = str(st.session_state.get(f"{c.section}_{c.key}"))
+
+    def __encode_reference(self, ifile, ofile, config_dict):
+        return self.celery_app.send_task('tasks.encode_reference', args=[ifile, ofile, config_dict])
 
     def config_ui(self):
         with st.sidebar:
             st.title("Settings")
 
-            if st.button("✅ Save", use_container_width=True):
+            if st.button("✅ Don't forget to Save", use_container_width=True):
                 self.store_config()
+
+            with st.expander("Prompt Editor"):
+                st.title("🚧 Under construction")
 
             with st.expander("Store / Restore"):
                 if st.button("⚙️ Restore Defaults"):
@@ -116,12 +148,13 @@ class Config:
                         self.config_upload_ini_dialog()
 
             with st.expander("Basic Settings", expanded=True):
-                st.session_state["config"]["TTS"]["tts_method"] = self.__tts_translate(st.radio("Select method for TTS 👇", ["Fish-Speech", "XTTSv2"], index=0))
+                tts_method = self.__tts_translate(st.radio("Select method for TTS 👇", ["Fish-Speech", "XTTSv2"], index=0))
+                st.session_state["tts_method"] = tts_method
 
                 tts_voice_upload = st.file_uploader(
                                 label="Voice sample",
                                 type=["mp3", "wav"])
-            
+
                 if tts_voice_upload is not None:
                     with open(self.voices_dir/tts_voice_upload.name, "wb") as f:
                         f.write(tts_voice_upload.getbuffer())
@@ -129,12 +162,42 @@ class Config:
                             f = Path(self.voices_dir/tts_voice_upload).absolute()
                             AudioSegment.from_wav(f).export(f.with_suffix('.wav'), format="wav")
 
-                if st.button("Clear Uploaded"):
+                if "voice_record" not in st.session_state:
+                    if st.button("🎤 Record Voice", use_container_width=True):
+                        self.voice_record()
+
+                voice_selection = st.selectbox(
+                    "Select Voice to use",
+                    ["Default"] + list({str(file.stem) for file in Path(self.voices_dir).rglob('*.wav') if file.is_file()}),
+                )
+                st.session_state["voice_selection"] = voice_selection
+                
+
+                if voice_selection != "Default":
+                    audio_file_path = self.voices_dir / (voice_selection + ".wav")
+                    with open(audio_file_path, 'rb') as f:
+                        audio_data = f.read()
+                    st.audio(audio_data, format='audio/wav', start_time=0)
+
+                    col_script, col_apply = st.columns([6, 1])
+                    with col_script:
+                        transcript_text = ""
+                        if os.path.isfile(self.voices_dir / (voice_selection + ".txt")):
+                            with open(self.voices_dir / (voice_selection + ".txt"), "r") as f:
+                                transcript_text = ' '.join(f.readlines())
+                        st.text_input("Voice Transcript", value=transcript_text, key="voice_transcript_text")
+                    with col_apply:
+                        st.write('<div style="height: 26px;"></div>', unsafe_allow_html=True)
+                        if st.button("✅"):
+                            with open(self.voices_dir / (voice_selection + ".txt"), "w") as f:
+                                f.write(st.session_state["voice_transcript_text"])
+                            st.success("ok")
+                            time.sleep(0.5)
+                            st.rerun()
+
+                if st.button("🗑️ Clear Uploaded", use_container_width=True):
                     self.__clear_voices()
 
-                st.session_state["config"]["TTS"]["voice"] = self.voices_dir / st.selectbox("Select Voice to use",
-                    ["Default"] + [str(file.name) for file in Path(self.voices_dir).rglob('*') if file.is_file()]
-                )
 
             with st.expander("Advanced Settings", expanded=True):
                 for expander in Config.config_sliders.keys():
