@@ -9,17 +9,6 @@ from ollama import chat, Client
 from ollama import ChatResponse
 
 def do_make_listenable(markdown, config_dict, ofile=None):
-
-    prompt_template = """
-        Take into account the context delimited by triple backquotes.
-
-        ```{context}```
-
-        Take the text delimited by triple backquotes and rewrite it for text to speech. Thus, describe all formulas and tables verbally. Only respond with the rewrite. Do not add any other text.
-
-        ```{text}```
-    """
-
     markdown_sections = re.split("(^#.*$)", markdown, flags=re.MULTILINE)
 
     to_skip = 0
@@ -61,7 +50,7 @@ def do_make_listenable(markdown, config_dict, ofile=None):
         response = client.generate(
             model=config_dict["LISTENABLE"]["model"],
             system=config_dict["LISTENABLE"]["system_prompt"],
-            prompt=prompt_template.format(text=texts[i], context=context)
+            prompt=config_dict["LISTENABLE"]["user_prompt_template"].format(text=texts[i], context=context)
         )
         processed_texts.append(response.response.strip().strip("```").strip().strip('"'))
     
