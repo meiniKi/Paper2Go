@@ -252,16 +252,14 @@ class Config:
                                     min_value=s.min,
                                     max_value=s.max,
                                     value=s.type(st.session_state["config"][s.section][s.key]),
-                                    key=f"{s.section}_{s.key}",
-                                    on_change=self.store_config()
+                                    key=f"{s.section}_{s.key}"
                                 )
                         if expander in Config.config_checkboxes:
                             for s in Config.config_checkboxes[expander]:
                                 st.toggle(
                                     label=s.label,
                                     value=bool(st.session_state["config"][s.section][s.key]),
-                                    key=f"{s.section}_{s.key}",
-                                    on_change=self.store_config()
+                                    key=f"{s.section}_{s.key}"
                                 )
                         if expander in Config.config_selectboxes:
                             for s in Config.config_selectboxes[expander]:
@@ -269,16 +267,15 @@ class Config:
                                     label=s.label,
                                     index=s.options.index(st.session_state["config"][s.section][s.key]),
                                     key=f"{s.section}_{s.key}",
-                                    options=s.options,
-                                    on_change=self.store_config()
+                                    options=s.options
                                 )
                         if expander in Config.config_inputboxes:
                             for s in Config.config_inputboxes[expander]:
                                 st.text_input(
                                     label=s.label,
                                     value=st.session_state["config"][s.section][s.key],
-                                    key=f"{s.section}_{s.key}",
-                                    on_change=self.store_config()
+                                    key=f"{s.section}_{s.key}"
+                                    #on_change=self.store_config()
                                 )
 
         # TODO: update dict and UI
