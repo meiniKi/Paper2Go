@@ -12,15 +12,18 @@ from collections import namedtuple
 from datetime import datetime
 import time
 from celery import Celery
+from typing import List
 
 class Config:
 
     slider_config_setup = namedtuple("SliderConfigSetup", "section key label type min max")
     checkbox_config_setup = namedtuple("CheckboxConfigSetup", "section key label")
+    selectbox_config_setup = namedtuple("SelectboxConfigSetup", "section key label type options")
+    input_config_setup = namedtuple("InputConfigSetup", "section key label")
 
     config_sliders = { "Fish-Speech" : [slider_config_setup("TTS_FISH", "num_samples", "Num. Samples", int, 1, 10),
                                         slider_config_setup("TTS_FISH", "top_p", "Top P", float, 0.0, 1.0),
-                                        slider_config_setup("TTS_FISH", "repetition_penalty", "Repetition Penalty", float, 0.0, 5.0),
+                                        slider_config_setup("TTS_FISH", "repetition_penalty", "Repetition Penalty", float, 1.0, 1.9),
                                         slider_config_setup("TTS_FISH", "temperature", "Temperature", float, 0.0, 1.0),
                                         slider_config_setup("TTS_FISH", "seed", "Seed", int, 1, 1000),
                                         slider_config_setup("TTS_FISH", "chunk_length", "Chunk Length", int, 1, 1000)],
@@ -28,6 +31,10 @@ class Config:
 
     config_checkboxes = {   "Fish-Speech" : [checkbox_config_setup("TTS_FISH", "compile", "Compile")],
                             "XTTSv2" : [checkbox_config_setup("TTS_XTTSv2", "split_sentences", "Split Sentence")]}
+    
+    config_selectboxes = {  "XTTSv2" : [selectbox_config_setup("TTS_XTTSv2", "lang", "Language", List[str], ["de", "en"])] }
+
+    config_inputboxes = {  "XTTSv2" : [input_config_setup("TTS_XTTSv2", "emotion", "Emotion")] }
 
 
     def __init__(self, voices_dir:Path, config_path="paper2go.ini", config_defaults_path="paper2go_default.ini"):
@@ -76,6 +83,38 @@ class Config:
             self.load_config()
             st.rerun()
 
+    @st.dialog("Update your Ollama Settings and Prompts")
+    def ollama_settings_prompts_dialog(self):
+        st.caption("🚧 No test yet. Make sure the model is available.")
+        model = st.text_input(
+            "Ollama Model",
+            value=st.session_state["config"]["LISTENABLE"]["model"]
+        )
+        host = st.text_input(
+            "Ollama Host",
+            value=st.session_state["config"]["LISTENABLE"]["host"]
+        )
+        filters = st.text_input(
+            "Sections to filter",
+            value=st.session_state["config"]["LISTENABLE"]["filters"]
+        )
+        sys_prompt = st.text_area(
+            "System Prompt",
+            value=st.session_state["config"]["LISTENABLE"]["system_prompt"]
+        )
+        user_prompt = st.text_area(
+            "System Prompt",
+            value=st.session_state["config"]["LISTENABLE"]["user_prompt_template"]
+        )
+        if st.button("✅ Apply"):
+            st.session_state["config"]["LISTENABLE"]["model"] = model
+            st.session_state["config"]["LISTENABLE"]["host"] = host
+            st.session_state["config"]["LISTENABLE"]["filters"] = filters
+            st.session_state["config"]["LISTENABLE"]["system_prompt"] = sys_prompt
+            st.session_state["config"]["LISTENABLE"]["user_prompt_template"] = user_prompt
+            self.store_config()
+            st.rerun()
+
     @st.dialog("Record your voice")
     def voice_record(self):
         transcript = st.text_input("⚠️ First, write what you are going to say", placeholder="Type here and press Enter...")
@@ -113,8 +152,12 @@ class Config:
         st.session_state["config"]["TTS"]["voice"] = str(self.voices_dir / st.session_state.get(f"voice_selection"))
         for s in sum(Config.config_sliders.values(), []):
             st.session_state["config"][s.section][s.key] = str(st.session_state.get(f"{s.section}_{s.key}"))
-        for c in sum(Config.config_checkboxes.values(), []):
-            st.session_state["config"][c.section][c.key] = str(st.session_state.get(f"{c.section}_{c.key}"))
+        for s in sum(Config.config_checkboxes.values(), []):
+            st.session_state["config"][s.section][s.key] = str(st.session_state.get(f"{s.section}_{s.key}"))
+        for s in sum(Config.config_selectboxes.values(), []):
+            st.session_state["config"][s.section][s.key] = str(st.session_state.get(f"{s.section}_{s.key}"))
+        for s in sum(Config.config_inputboxes.values(), []):
+            st.session_state["config"][s.section][s.key] = st.session_state.get(f"{s.section}_{s.key}")
 
     def __encode_reference(self, ifile, ofile, config_dict):
         return self.celery_app.send_task('tasks.encode_reference', args=[ifile, ofile, config_dict])
@@ -126,10 +169,7 @@ class Config:
             if st.button("✅ Don't forget to Save", use_container_width=True):
                 self.store_config()
 
-            with st.expander("Prompt Editor"):
-                st.title("🚧 Under construction")
-
-            with st.expander("Store / Restore"):
+            with st.expander("💾 Store / Restore"):
                 if st.button("⚙️ Restore Defaults"):
                     self.load_config(defaults=True)
                     print(st.session_state["config"])
@@ -200,6 +240,9 @@ class Config:
 
 
             with st.expander("Advanced Settings", expanded=True):
+                if "ollama_settings_prompts_dialog" not in st.session_state:
+                    if st.button("⚙️ Ollama Settings, Prompts & Filters", use_container_width=True):
+                        self.ollama_settings_prompts_dialog()
                 for expander in Config.config_sliders.keys():
                     with st.expander(expander): 
                         if expander in Config.config_sliders:
@@ -209,15 +252,33 @@ class Config:
                                     min_value=s.min,
                                     max_value=s.max,
                                     value=s.type(st.session_state["config"][s.section][s.key]),
-                                    key=f"{s.section}_{s.key}"
+                                    key=f"{s.section}_{s.key}",
+                                    on_change=self.store_config()
                                 )
-
                         if expander in Config.config_checkboxes:
-                            for c in Config.config_checkboxes[expander]:
-                                st.checkbox(
-                                    label=c.label,
-                                    value=bool(st.session_state["config"][c.section][c.key]),
-                                    key=f"{c.section}_{c.key}"
+                            for s in Config.config_checkboxes[expander]:
+                                st.toggle(
+                                    label=s.label,
+                                    value=bool(st.session_state["config"][s.section][s.key]),
+                                    key=f"{s.section}_{s.key}",
+                                    on_change=self.store_config()
+                                )
+                        if expander in Config.config_selectboxes:
+                            for s in Config.config_selectboxes[expander]:
+                                st.selectbox(
+                                    label=s.label,
+                                    index=s.options.index(st.session_state["config"][s.section][s.key]),
+                                    key=f"{s.section}_{s.key}",
+                                    options=s.options,
+                                    on_change=self.store_config()
+                                )
+                        if expander in Config.config_inputboxes:
+                            for s in Config.config_inputboxes[expander]:
+                                st.text_input(
+                                    label=s.label,
+                                    value=st.session_state["config"][s.section][s.key],
+                                    key=f"{s.section}_{s.key}",
+                                    on_change=self.store_config()
                                 )
 
         # TODO: update dict and UI

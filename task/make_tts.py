@@ -35,12 +35,11 @@ def worker(working_dir, nr, title, text, config_dict):
         cmd += ['--seed' , config_dict["TTS_FISH"]["seed"]]
         cmd += ['--chunk-length', config_dict["TTS_FISH"]["chunk_length"]]
     
-        if config_dict["TTS_FISH"]["compile"]:
+
+        if config_dict["TTS_FISH"]["compile"] == "True":
             cmd += ['--compile']
 
         subprocess.run(cmd, cwd=working_dir)
-
-        #TODO: voices
 
         cmd = ['python', str(Path(config_dict["TTS_FISH"]["inference_py"]).absolute())]
         cmd += ['-i' , working_dir/'codes_0.npy']
@@ -49,13 +48,17 @@ def worker(working_dir, nr, title, text, config_dict):
     else:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        speaker_wav = str(Path(config_dict["TTS"]["voice"]).absolute()) if config_dict["TTS"]["voice"] != "Default" \
+        speaker_wav = str(Path(config_dict["TTS"]["voice"]).absolute()) if config_dict["TTS"]["voice"].split("/")[-1] != "Default" \
                         else str(Path(config_dict["TTS_XTTSv2"]["default_voice"]).absolute())
         tts = TTS(config_dict["TTS_XTTSv2"]["model"]).to(device)
+
         tts.tts_to_file(text=text,
                         file_path=working_dir/"fake.wav",
                         speaker_wav=speaker_wav,
-                        language="en")
+                        language=config_dict["TTS_XTTSv2"]["lang"],
+                        emotion=config_dict["TTS_XTTSv2"]["emotion"],
+                        speed=config_dict["TTS_XTTSv2"]["speed"],
+                        split_sentences=(config_dict["TTS_XTTSv2"]["split_sentences"] == "True"))
 
     AudioSegment.from_wav(working_dir/"fake.wav").export(working_dir/'..'/f'{nr}-{title}.mp3', format="mp3")
     shutil.rmtree(working_dir)

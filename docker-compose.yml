@@ -9,7 +9,7 @@ services:
 
   p2go-celery-worker:
     build: .
-    command: celery -A tasks worker --loglevel=warning
+    command: celery -A tasks worker --loglevel=warning --pool=threads
     depends_on:
       - redis
     deploy:

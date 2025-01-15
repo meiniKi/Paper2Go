@@ -41,11 +41,11 @@ class App():
                 os.makedirs(working_dir, exist_ok=True)
                 for i, file in enumerate(source_files):
                     file_bytes = bytes(file.getbuffer())
-                    task_step_1 = self.__from_pdf_step_1(file_bytes, str(working_dir / "01_extracted.md"), self.config.as_dict())
+                    task_step_1 = self.__from_pdf_step_1(file_bytes, str(working_dir / "01_extracted.md"))
                     if (result := self.__wait_with_spinner(task_step_1, i, len(source_files), "PDF to Text Conversion", 1, 3)) is None:
                         break
 
-                    task_step_2 = self.__from_pdf_step_2(result["markdown"], self.config.as_dict(), str(working_dir / "02_script.md"), self.config.as_dict())
+                    task_step_2 = self.__from_pdf_step_2(result["markdown"], str(working_dir / "02_script.md"), self.config.as_dict())
                     if (result := self.__wait_with_spinner(task_step_2, i, len(source_files), "Reformulation", 2, 3)) is None:
                         break
 
@@ -65,11 +65,25 @@ class App():
                     )
 
         with tab_text:
+            summarize = st.toggle("Enhance text for TTS before converting", value=False)
             source_text = st.chat_input("Type your script here")
             if source_text:
                 working_dir = Path("data").absolute() / self.unique_dir()
                 os.makedirs(working_dir, exist_ok=True)
-                task = self.__from_text_pipeline(["tts"], [source_text], str(working_dir), self.config.as_dict())
+                if summarize:
+                    task = self. __from_pdf_step_2("## Title" + source_text, str(working_dir), self.config.as_dict())
+                    with st.spinner(f"Processing..."):
+                        while True:
+                            task_result = AsyncResult(task.id, app=self.celery_app)
+                            if task_result.state == "SUCCESS":
+                                st.write(task_result.get()["script"])
+                                break
+                            elif task_result.state in ["FAILURE", "REVOKED"]:
+                                st.error(f"Task failed with status: {task_result.state}")
+                                break
+                            time.sleep(1)
+
+                task = self.__from_text_pipeline(["tts"], task_result.get()["script"] if summarize else [source_text], str(working_dir), self.config.as_dict())
                 with st.spinner(f"Processing..."):
                     while True:
                         task_result = AsyncResult(task.id, app=self.celery_app)
@@ -93,11 +107,11 @@ class App():
     def __from_text_pipeline(self, titles, texts, working_dir, config):
         return self.celery_app.send_task('tasks.make_tts', args=[titles, texts, working_dir, config])
 
-    def __from_pdf_step_1(self, file_bytes, working_dir, config):
+    def __from_pdf_step_1(self, file_bytes, working_dir):
         return self.celery_app.send_task('tasks.convert_to_markdown', args=[file_bytes, working_dir])
 
-    def __from_pdf_step_2(self, script, condfig, working_dir, config):
-        return self.celery_app.send_task('tasks.make_listenable', args=[script, config, working_dir])
+    def __from_pdf_step_2(self, script, working_dir, config):
+        return self.celery_app.send_task('tasks.make_listenable', args=[script, config, None])
 
     def unique_dir(self):
         return datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")[:-3]
