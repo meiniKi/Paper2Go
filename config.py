@@ -16,25 +16,32 @@ from typing import List
 
 class Config:
 
+    tts_methods_lut = {"OpenAI API": "TTS_OPENAI", "Fish-Speech": "TTS_FISH", "XTTSv2": "TTS_XTTSv2"}
+
     slider_config_setup = namedtuple("SliderConfigSetup", "section key label type min max")
     checkbox_config_setup = namedtuple("CheckboxConfigSetup", "section key label")
     selectbox_config_setup = namedtuple("SelectboxConfigSetup", "section key label type options")
     input_config_setup = namedtuple("InputConfigSetup", "section key label")
 
-    config_sliders = { "Fish-Speech" : [slider_config_setup("TTS_FISH", "num_samples", "Num. Samples", int, 1, 10),
+    config_sliders = { "TTS_FISH" : [slider_config_setup("TTS_FISH", "num_samples", "Num. Samples", int, 1, 10),
                                         slider_config_setup("TTS_FISH", "top_p", "Top P", float, 0.0, 1.0),
                                         slider_config_setup("TTS_FISH", "repetition_penalty", "Repetition Penalty", float, 1.0, 1.9),
                                         slider_config_setup("TTS_FISH", "temperature", "Temperature", float, 0.0, 1.0),
                                         slider_config_setup("TTS_FISH", "seed", "Seed", int, 1, 1000),
                                         slider_config_setup("TTS_FISH", "chunk_length", "Chunk Length", int, 1, 1000)],
-                        "XTTSv2" : [slider_config_setup("TTS_XTTSv2", "speed", "Speed", float, 0.1, 4.0)]}
+                        "TTS_XTTSv2" : [slider_config_setup("TTS_XTTSv2", "speed", "Speed", float, 0.1, 4.0)],
+                        "TTS_OPENAI": [slider_config_setup("TTS_OPENAI", "speed", "Speed", float, 0.5, 4.0)] }
 
-    config_checkboxes = {   "Fish-Speech" : [checkbox_config_setup("TTS_FISH", "compile", "Compile")],
-                            "XTTSv2" : [checkbox_config_setup("TTS_XTTSv2", "split_sentences", "Split Sentence")]}
+    config_checkboxes = {   "TTS_FISH" : [checkbox_config_setup("TTS_FISH", "compile", "Compile")],
+                            "TTS_XTTSv2" : [checkbox_config_setup("TTS_XTTSv2", "split_sentences", "Split Sentence")]}
     
-    config_selectboxes = {  "XTTSv2" : [selectbox_config_setup("TTS_XTTSv2", "lang", "Language", List[str], ["de", "en"])] }
+    config_selectboxes = {  "TTS_XTTSv2" : [selectbox_config_setup("TTS_XTTSv2", "lang", "Language", List[str], ["de", "en"])] }
 
-    config_inputboxes = {  "XTTSv2" : [input_config_setup("TTS_XTTSv2", "emotion", "Emotion")] }
+    config_inputboxes = {   "TTS_XTTSv2" : [input_config_setup("TTS_XTTSv2", "emotion", "Emotion")],
+                            "TTS_OPENAI" : [input_config_setup("TTS_OPENAI", "api_key", "API Key"),
+                                            input_config_setup("TTS_OPENAI", "base_url", "Base URL"),
+                                            input_config_setup("TTS_OPENAI", "model", "Model"),
+                                            input_config_setup("TTS_OPENAI", "voice", "Voice")] }
 
 
     def __init__(self, voices_dir:Path, config_path="paper2go.ini", config_defaults_path="paper2go_default.ini"):
@@ -43,6 +50,7 @@ class Config:
         self.voices_dir = voices_dir
         self.celery_app = Celery('tasks', broker='redis://localhost:6379/0', backend='redis://localhost:6379/0')
         self.load_config()
+        st.session_state.should_save = False
 
     def as_dict(self):
         return st.session_state["config"]
@@ -68,6 +76,7 @@ class Config:
         if self.config_path is not None:
             with open(self.config_path, 'w') as f:
                 parser.write(f)
+        st.session_state.should_save = False
 
     @st.dialog("Upload your INI File")
     def config_upload_ini_dialog(self):
@@ -136,9 +145,11 @@ class Config:
             st.success(f"Voice successfully saved as {filename}")
             st.rerun()
 
-    def __tts_translate(self, label_txt):
-        lut = {"Fish-Speech": "TTS_FISH", "XTTSv2": "TTS_XTTSv2"}
-        return lut[label_txt]
+    def __tts_label_to_section(label_txt):
+        return Config.tts_methods_lut[label_txt]
+    
+    def __tts_section_to_label(section_txt):
+        return dict((v,k) for k,v in Config.tts_methods_lut.items())[section_txt]
     
     def __clear_voices(self):
         for filename in os.listdir(self.voices_dir):
@@ -161,6 +172,9 @@ class Config:
 
     def __encode_reference(self, ifile, ofile, config_dict):
         return self.celery_app.send_task('tasks.encode_reference', args=[ifile, ofile, config_dict])
+
+    def __should_save(self):
+        st.session_state.should_save = True
 
     def config_ui(self):
         with st.sidebar:
@@ -187,8 +201,14 @@ class Config:
                     if st.button("📁 Upload Config INI"):
                         self.config_upload_ini_dialog()
 
-            with st.expander("Basic Settings", expanded=True):
-                tts_method = self.__tts_translate(st.radio("Select method for TTS 👇", ["Fish-Speech", "XTTSv2"], index=0))
+            with st.expander("Basic TTS Settings", expanded=True):
+
+                tts_method = Config.__tts_label_to_section(
+                    st.radio("Select method for TTS 👇",
+                             Config.tts_methods_lut.keys(), 
+                             index=list(Config.tts_methods_lut.values()).index(
+                                 st.session_state["config"]["TTS"]["tts_method"]),
+                                 on_change=self.__should_save()))
                 st.session_state["tts_method"] = tts_method
 
                 tts_voice_upload = st.file_uploader(
@@ -209,6 +229,7 @@ class Config:
                 voice_selection = st.selectbox(
                     "Select Voice to use",
                     ["Default"] + list({str(file.stem) for file in Path(self.voices_dir).rglob('*.wav') if file.is_file()}),
+                    on_change=self.__should_save()
                 )
                 st.session_state["voice_selection"] = voice_selection
                 
@@ -239,12 +260,12 @@ class Config:
                     self.__clear_voices()
 
 
-            with st.expander("Advanced Settings", expanded=True):
+            with st.expander("Advanced TTS Settings", expanded=True):
                 if "ollama_settings_prompts_dialog" not in st.session_state:
                     if st.button("⚙️ Ollama Settings, Prompts & Filters", use_container_width=True):
                         self.ollama_settings_prompts_dialog()
                 for expander in Config.config_sliders.keys():
-                    with st.expander(expander): 
+                    with st.expander(Config.__tts_section_to_label(expander)): 
                         if expander in Config.config_sliders:
                             for s in Config.config_sliders[expander]:
                                 st.slider(
@@ -252,14 +273,16 @@ class Config:
                                     min_value=s.min,
                                     max_value=s.max,
                                     value=s.type(st.session_state["config"][s.section][s.key]),
-                                    key=f"{s.section}_{s.key}"
+                                    key=f"{s.section}_{s.key}",
+                                    on_change=self.__should_save()
                                 )
                         if expander in Config.config_checkboxes:
                             for s in Config.config_checkboxes[expander]:
                                 st.toggle(
                                     label=s.label,
                                     value=bool(st.session_state["config"][s.section][s.key]),
-                                    key=f"{s.section}_{s.key}"
+                                    key=f"{s.section}_{s.key}",
+                                    on_change=self.__should_save()
                                 )
                         if expander in Config.config_selectboxes:
                             for s in Config.config_selectboxes[expander]:
@@ -267,15 +290,19 @@ class Config:
                                     label=s.label,
                                     index=s.options.index(st.session_state["config"][s.section][s.key]),
                                     key=f"{s.section}_{s.key}",
-                                    options=s.options
+                                    options=s.options,
+                                    on_change=self.__should_save()
                                 )
                         if expander in Config.config_inputboxes:
                             for s in Config.config_inputboxes[expander]:
                                 st.text_input(
                                     label=s.label,
                                     value=st.session_state["config"][s.section][s.key],
-                                    key=f"{s.section}_{s.key}"
-                                    #on_change=self.store_config()
+                                    key=f"{s.section}_{s.key}",
+                                    on_change=self.__should_save()
                                 )
+
+            if st.session_state.should_save:
+                self.store_config()
 
         # TODO: update dict and UI
