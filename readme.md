@@ -6,7 +6,7 @@ Paper2Go converts written documents into speech. It primarily aims to convert re
 
 Through the Web App, the document can be uploaded. Paper2Go uses [Docling](https://github.com/DS4SD/docling) to extract the text and store it in Markdown format. Further, each section is summarized and re-formulated by an LLM (local [Ollama](https://github.com/ollama/ollama)) model to be understandable without visually seeing the document (e.g., explaining formulas and tables). Once done, the sections are individually converted to speech using [Fish-Speech](https://github.com/fishaudio/fish-speech) or [XTTSv2](https://huggingface.co/coqui/XTTS-v2) and named by the enumerated section titles. The audio files are combined in a zip file and can be downloaded via the Web App.
 
-> [!IMPORTANT]  
+> [!CAUTION]
 > :triangular_ruler: Please note that Paper2Go is work in progress.
 
 ## 🎨 Key Features
@@ -44,6 +44,9 @@ Download the XTTS-v2 model. Run `xtts.py` to check your installation and downloa
 cd models
 python xtts.py
 ```
+
+> [!IMPORTANT]  
+> :triangular_ruler: Both installations assume that ollama is already set up and accessible (by default via `http://localhost:11434`).
 
 ### Docker
 
