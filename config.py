@@ -201,7 +201,7 @@ class Config:
                     if st.button("📁 Upload Config INI"):
                         self.config_upload_ini_dialog()
 
-            with st.expander("Basic TTS Settings", expanded=True):
+            with st.expander("Basic Settings", expanded=True):
 
                 tts_method = Config.__tts_label_to_section(
                     st.radio("Select method for TTS 👇",
@@ -210,7 +210,10 @@ class Config:
                                  st.session_state["config"]["TTS"]["tts_method"]),
                                  on_change=self.__should_save()))
                 st.session_state["tts_method"] = tts_method
+                st.markdown("OpenAI with local OpenedAI-Speech is fastest in default.")
 
+            with st.expander("Voice Cloning"):
+                st.markdown("Only for Fish-Speech & XTTS")
                 tts_voice_upload = st.file_uploader(
                                 label="Voice sample",
                                 type=["mp3", "wav"])
