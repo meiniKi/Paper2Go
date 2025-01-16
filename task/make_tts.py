@@ -15,6 +15,7 @@ from pathlib import Path
 def worker(working_dir, nr, title, text, config_dict):
     os.makedirs(working_dir)
 
+    # Fish-Speed
     if config_dict["TTS"]["tts_method"] == 'TTS_FISH':
         import locale
         locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
@@ -45,7 +46,9 @@ def worker(working_dir, nr, title, text, config_dict):
         cmd += ['-i' , working_dir/'codes_0.npy']
         cmd += ['--checkpoint-path', str(Path(config_dict["TTS_FISH"]["generator_pth"]).absolute())]
         subprocess.run(cmd, cwd=working_dir)
-    else:
+
+    # XTTS
+    elif config_dict["TTS"]["tts_method"] == 'TTS_XTTSv2':
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
         speaker_wav = str(Path(config_dict["TTS"]["voice"]+".wav").absolute()) if config_dict["TTS"]["voice"].split("/")[-1] != "Default" \
@@ -59,8 +62,25 @@ def worker(working_dir, nr, title, text, config_dict):
                         emotion=config_dict["TTS_XTTSv2"]["emotion"],
                         speed=config_dict["TTS_XTTSv2"]["speed"],
                         split_sentences=(config_dict["TTS_XTTSv2"]["split_sentences"] == "True"))
+    # OpenAI API
+    else:
+        import openai
+        client = openai.OpenAI(
+            api_key=config_dict["TTS_OPENAI"]["api_key"],
+            base_url=config_dict["TTS_OPENAI"]["base_url"]
+        )
 
-    AudioSegment.from_wav(working_dir/"fake.wav").export(working_dir/'..'/f'{nr}-{title}.mp3', format="mp3")
+        with client.audio.speech.with_streaming_response.create(
+            model=config_dict["TTS_OPENAI"]["model"],
+            voice=config_dict["TTS_OPENAI"]["voice"],
+            speed=config_dict["TTS_OPENAI"]["speed"],
+            response_format="mp3",
+            input=text,
+        ) as response:
+            response.stream_to_file(working_dir/".."/f"{nr}-{title}.mp3")
+
+    if not os.path.exists(working_dir/".."/f"{nr}-{title}.mp3"):
+        AudioSegment.from_wav(working_dir/"fake.wav").export(working_dir/".."/f"{nr}-{title}.mp3", format="mp3")
     shutil.rmtree(working_dir)
 
 
