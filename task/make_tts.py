@@ -48,8 +48,8 @@ def worker(working_dir, nr, title, text, config_dict):
     else:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        speaker_wav = str(Path(config_dict["TTS"]["voice"]).absolute()) if config_dict["TTS"]["voice"].split("/")[-1] != "Default" \
-                        else str(Path(config_dict["TTS_XTTSv2"]["default_voice"]).absolute())
+        speaker_wav = str(Path(config_dict["TTS"]["voice"]+".wav").absolute()) if config_dict["TTS"]["voice"].split("/")[-1] != "Default" \
+                        else str((Path(config_dict["TTS_XTTSv2"]["default_voice"])).absolute())
         tts = TTS(config_dict["TTS_XTTSv2"]["model"]).to(device)
 
         tts.tts_to_file(text=text,
