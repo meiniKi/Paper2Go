@@ -17,7 +17,7 @@ class App():
         self.celery_app = Celery('tasks', broker='redis://localhost:6379/0', backend='redis://localhost:6379/0')
 
     def __wait_with_spinner(self, task, file:int, of_files:int, step_name:str, step:int, of_steps:int):
-        with st.spinner(f"Processing File ({file}/{of_files}) Step {step_name} ({step}/{of_steps})"):
+        with st.spinner(f"Processing File ({file+1}/{of_files}) Step {step_name} ({step}/{of_steps})"):
             while True:
                 task_result = AsyncResult(task.id, app=self.celery_app)
                 if task_result.state == "SUCCESS":
