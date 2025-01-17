@@ -26,7 +26,7 @@ def worker(working_dir, nr, title, text, config_dict):
         if os.path.isfile(config_dict["TTS"]["voice"] + ".txt") and os.path.isfile(config_dict["TTS"]["voice"] + ".wav"):
             with open(config_dict["TTS"]["voice"] + ".txt", "r") as f:
                 cmd += ['--prompt-text', ' '.join(f.readlines())]
-            cmd += ['--prompt-tokens', config_dict["TTS"]["voice"] + ".npy"]
+            cmd += ['--prompt-tokens', Path(config_dict["TTS"]["voice"] + ".npy").absolute()]
 
         cmd += ['--checkpoint-path', str(Path(config_dict["TTS_FISH"]["fishspeech_chkp_path"]).absolute())]
         cmd += ['--num-samples' , config_dict["TTS_FISH"]["num_samples"]]
